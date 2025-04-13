@@ -1,49 +1,71 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  postgres:
-    image: postgres:14
-    container_name: sriox_postgres
-    environment:
-      - POSTGRES_USER=${POSTGRES_USER:-sriox}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-sriox_password}
-      - POSTGRES_DB=${POSTGRES_DB:-sriox}
+  app:
+    init: true
+    privileged: true
+    build:
+      context: .
+      dockerfile: Dockerfile
+
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "55432:5432"
+      - ..:/workspaces/webstudio:cached
+      # preserve history
+      - ./.local:/home/node/.local
+      - docker-data:/var/lib/docker
+
+    entrypoint: ["/usr/local/share/docker-init.sh"]
+    # Overrides default command so things don't shut down after the process ends.
+    command: sleep infinity
+    # Runs app on the same network as the database container, allows "forwardPorts" in devcontainer.json function.
+    network_mode: service:db
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: ghcr.io/supabase/postgres:15.1.1.55
+    # Uncomment to log all queries
+    command: ["postgres", "-c", "log_statement=all", "-c", "listen_addresses=*"]
     restart: unless-stopped
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: webstudio
+
+    ports:
+      - ${PGPORT:-5432}:5432
+      - 3000:3000
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U sriox"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d webstudio"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 25
 
-  app:
-    build: .
-    container_name: sriox_app
+  rest:
+    container_name: supabase-rest
+    image: postgrest/postgrest:v12.2.0
     depends_on:
-      postgres:
+      db:
+        # Disable this if you are using an external Postgres database
         condition: service_healthy
-    environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-sriox}:${POSTGRES_PASSWORD:-sriox_password}@postgres:5432/${POSTGRES_DB:-sriox}
-      - SECRET_KEY=${SECRET_KEY:-supersecretkey}
-      - DOMAIN_NAME=${DOMAIN_NAME:-sriox.com}
-      - SERVER_IP=${SERVER_IP:-127.0.0.1}
-      - CLOUDFLARE_EMAIL=${CLOUDFLARE_EMAIL}
-      - CLOUDFLARE_API_KEY=${CLOUDFLARE_API_KEY}
-      - CLOUDFLARE_ZONE_ID=${CLOUDFLARE_ZONE_ID}
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend/static_sites:/app/backend/static_sites
-      - ./backend/templates/redirects:/app/backend/templates/redirects
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    environment:
+      PGRST_DB_URI: postgresql://postgres:pass@localhost/webstudio
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET:-jwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecret}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET:-jwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecretjwtsecret}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
+    command: "postgrest"
+
+    # Runs app on the same network as the database container, allows "forwardPorts" in devcontainer.json function.
+    network_mode: service:db
 
 volumes:
-  postgres_data:
+  postgres-data:
+  docker-data:
