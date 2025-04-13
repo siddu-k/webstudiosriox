@@ -1,4 +1,3 @@
 [submodule "packages/sdk-components-animation/private-src"]
 	path = packages/sdk-components-animation/private-src
-	url = https://github.com/webstudio-is/sdk-components-animation.git
-	branch = main
+	url = https://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@github.com/webstudio-is/sdk-components-animation.git
